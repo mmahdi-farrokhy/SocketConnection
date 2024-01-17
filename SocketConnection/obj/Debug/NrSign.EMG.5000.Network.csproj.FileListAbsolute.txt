@@ -1,0 +1,10 @@
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\bin\Debug\SocketConnection.exe.config
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\bin\Debug\SocketConnection.exe
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\bin\Debug\SocketConnection.pdb
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\NrSign.EMG.5000.Network.csproj.AssemblyReference.cache
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\SocketConnection.Form1.resources
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\SocketConnection.Properties.Resources.resources
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\NrSign.EMG.5000.Network.csproj.GenerateResource.cache
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\NrSign.EMG.5000.Network.csproj.CoreCompileInputs.cache
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\SocketConnection.exe
+D:\Mohammadmahdi Farrokhy\SocketConnection\SocketConnection\obj\Debug\SocketConnection.pdb
