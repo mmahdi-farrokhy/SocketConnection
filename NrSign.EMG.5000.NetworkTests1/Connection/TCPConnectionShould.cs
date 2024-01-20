@@ -101,7 +101,7 @@ namespace SocketConnection.Hardware.Tests
         [TestInitialize]
         public void Init()
         {
-            _connection = new TCPConnection("192.168.3.128", 5000);
+            _connection = new TCPConnection("192.168.3.120", 5000);
             _connection.StartConnection();
         }
 
@@ -110,7 +110,7 @@ namespace SocketConnection.Hardware.Tests
         {
             Assert.IsTrue(_connection.IsConnected());
         }
-        
+
         [TestMethod()]
         public void ExtractCurrentSampleFromTheReceivedPacket()
         {
@@ -125,7 +125,21 @@ namespace SocketConnection.Hardware.Tests
         }
 
         [TestMethod()]
-        public void ReadDataFromSocket()
+        public void GetADCDigitalDataFromSocket()
+        {
+            byte[] packet = _connection.ReadPacketFromSocket();
+            CollectionAssert.AreEqual(dataPacket, packet);
+        }
+
+        [TestMethod()]
+        public void GetHeadBoxSerialDataFromSocket()
+        {
+            byte[] packet = _connection.ReadPacketFromSocket();
+            CollectionAssert.AreEqual(headBoxCommandPacket, packet);
+        }
+
+        [TestMethod()]
+        public void GetStimSerialDataFromSocket()
         {
             byte[] packet = _connection.ReadPacketFromSocket();
             CollectionAssert.AreEqual(stimCommandPacket, packet);

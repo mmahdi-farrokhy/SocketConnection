@@ -8,6 +8,7 @@ namespace SocketConnection.Hardware
 {
     using System.Collections.Generic;
     using System.Data.Common;
+    using System.Linq;
     using System.Net.Http;
     using System.Windows.Forms;
 
@@ -77,9 +78,31 @@ namespace SocketConnection.Hardware
 
         public byte[] ReadPacketFromSocket()
         {
-            byte[] packet = new byte[19];
+            int adcDigitalDataLength = 1330;
+            int uartSerialDataLength = 19;
+            int restOfPacketLength;
+            byte[] header = new byte[3];
+            byte[] packet;
+            byte[] fullPacket;
+
+            tcpClient.GetStream().Read(header, 0, header.Length);
+
+            if (header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFA }) || header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFB }))
+            {
+                restOfPacketLength = uartSerialDataLength - 3;
+                fullPacket = new byte[uartSerialDataLength];
+            }
+            else
+            {
+                restOfPacketLength = adcDigitalDataLength - 3;
+                fullPacket = new byte[adcDigitalDataLength];
+            }
+
+            packet = new byte[restOfPacketLength];
             tcpClient.GetStream().Read(packet, 0, packet.Length);
-            return packet;
+            Buffer.BlockCopy(header, 0, fullPacket, 0, header.Length);
+            Buffer.BlockCopy(packet, 0, fullPacket, header.Length, packet.Length);
+            return fullPacket;
         }
 
         public void ListenForData()

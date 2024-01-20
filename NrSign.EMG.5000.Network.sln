@@ -5,7 +5,7 @@ VisualStudioVersion = 17.8.34330.188
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NrSign.EMG.5000.Network", "SocketConnection\NrSign.EMG.5000.Network.csproj", "{99FB7DCC-270C-4727-AFEA-323A34EC2137}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NrSign.EMG.5000.NetworkTests1", "NrSign.EMG.5000.NetworkTests1\NrSign.EMG.5000.NetworkTests1.csproj", "{5E1F935C-9FB5-4FE3-80EB-4F41BA1F6456}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NrSign.EMG.5000.NetworkTests", "NrSign.EMG.5000.NetworkTests1\NrSign.EMG.5000.NetworkTests.csproj", "{5E1F935C-9FB5-4FE3-80EB-4F41BA1F6456}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
