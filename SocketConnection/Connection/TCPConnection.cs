@@ -1,23 +1,18 @@
 ﻿using SocketConnection.Data;
 using System;
-using System.Net;
 using System.Net.Sockets;
-using System.Threading;
 
 namespace SocketConnection.Hardware
 {
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
-    using System.Data.Common;
     using System.Linq;
-    using System.Net.Http;
-    using System.Windows.Forms;
 
     public class TCPConnection : SocketConnection
     {
-        private TcpListener tcpListener;
         private TcpClient tcpClient;
-        private NetworkStream clientStream;
-        private Queue<byte[]> packetQueue; // Queue to buffer incoming packets
+        private BlockingCollection<byte[]> digitalDataBuffer;
+        private BlockingCollection<byte[]> commandBuffer;
         private string IP = "192.168.3.xxx";
         private int Port = 5000;
         private const int NUMBER_OF_ATTEMPTS = 5;
@@ -28,14 +23,14 @@ namespace SocketConnection.Hardware
         private const byte SAMPLE_INITIALIZER = 0xFF;
         private const byte STIM_COMMAND_MARKER = 0xFA;
         private const byte HEAD_BOX_COMMAND_MARKER = 0xFB;
+        private int _numberOfDigitalDataSamples;
 
         public TCPConnection(string ip, int port)
         {
             IP = ip;
             this.Port = port;
-            tcpListener = new TcpListener(IPAddress.Any, Port);
             tcpClient = new TcpClient();
-            packetQueue = new Queue<byte[]>();
+            digitalDataBuffer = new BlockingCollection<byte[]>();
         }
 
         public void StartConnection()
@@ -57,6 +52,7 @@ namespace SocketConnection.Hardware
                     else
                     {
                         tcpClient.Close();
+                        attemptCounter++;
                     }
                 }
                 catch
@@ -71,6 +67,11 @@ namespace SocketConnection.Hardware
             }
         }
 
+        public void StopConnection()
+        {
+            tcpClient.Close();
+        }
+
         public bool IsConnected()
         {
             return tcpClient.Connected;
@@ -80,28 +81,28 @@ namespace SocketConnection.Hardware
         {
             int adcDigitalDataLength = 1330;
             int uartSerialDataLength = 19;
-            int restOfPacketLength;
-            byte[] header = new byte[3];
-            byte[] packet;
-            byte[] fullPacket;
+            int packetBodyLength = 0;
+            byte[] packetHeader = new byte[3];
+            byte[] packetBody;
+            byte[] fullPacket = new byte[0];
 
-            tcpClient.GetStream().Read(header, 0, header.Length);
+            tcpClient.GetStream().Read(packetHeader, 0, packetHeader.Length);
 
-            if (header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFA }) || header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFB }))
+            if (packetHeader.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFA }) || packetHeader.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFB }))
             {
-                restOfPacketLength = uartSerialDataLength - 3;
+                packetBodyLength = uartSerialDataLength - 3;
                 fullPacket = new byte[uartSerialDataLength];
             }
-            else
+            else if (packetHeader.Take(2).SequenceEqual(new byte[] { 0XFF, 0XFF }))
             {
-                restOfPacketLength = adcDigitalDataLength - 3;
+                packetBodyLength = adcDigitalDataLength - 3;
                 fullPacket = new byte[adcDigitalDataLength];
             }
 
-            packet = new byte[restOfPacketLength];
-            tcpClient.GetStream().Read(packet, 0, packet.Length);
-            Buffer.BlockCopy(header, 0, fullPacket, 0, header.Length);
-            Buffer.BlockCopy(packet, 0, fullPacket, header.Length, packet.Length);
+            packetBody = new byte[packetBodyLength];
+            tcpClient.GetStream().Read(packetBody, 0, packetBody.Length);
+            Buffer.BlockCopy(packetHeader, 0, fullPacket, 0, packetHeader.Length);
+            Buffer.BlockCopy(packetBody, 0, fullPacket, packetHeader.Length, packetBody.Length);
             return fullPacket;
         }
 
@@ -112,24 +113,22 @@ namespace SocketConnection.Hardware
                 while (IsConnected())
                 {
                     byte[] packet = new byte[PACKET_SIZE];
-                    int bytesRead = clientStream.Read(packet, 0, packet.Length);
-
+                    int bytesRead = tcpClient.GetStream().Read(packet, 0, packet.Length);
                     if (bytesRead > 0)
                     {
                         Sample currentSample = ExtractCurrentSample(packet);
                         if (currentSample is HardwareCommand)
                         {
-                            HandleCommand(packet);
+                            HandleCommand(currentSample as HardwareCommand);
                         }
                         else
                         {
+                            _numberOfDigitalDataSamples = bytesRead / 1330;
                             ProcessDigitalData(packet);
                         }
                     }
                     else
                     {
-                        // Handle the case when the connection is closed by the server
-                        // You may want to reconnect or take appropriate action based on your requirements
                         break;
                     }
                 }
@@ -156,7 +155,7 @@ namespace SocketConnection.Hardware
                         if (secondSampleByte == SAMPLE_INITIALIZER)
                         {
                             if (thirdSampleByte == HEAD_BOX_COMMAND_MARKER || thirdSampleByte == STIM_COMMAND_MARKER)
-                            { // Command
+                            {
                                 int commandLength = packet[packetByteIndex + 3];
                                 currentSample = new HardwareCommand(thirdSampleByte, commandLength);
                                 currentSample.Header = new byte[] { 0xFF, 0xFF, thirdSampleByte };
@@ -166,7 +165,7 @@ namespace SocketConnection.Hardware
                                 packetByteIndex += 19;
                             }
                             else
-                            { // ADC Data
+                            {
                                 currentSample = new DigitalData();
                                 currentSample.Header = new byte[] { 0XFF, 0XFF };
                                 int commandStartIndex = 2;
@@ -185,51 +184,58 @@ namespace SocketConnection.Hardware
             return currentSample;
         }
 
+        public void HandleCommand(HardwareCommand hardwareCommand)
+        {
+            commandBuffer.Add(hardwareCommand.Body);
+        }
+
+        public void ProcessDigitalData(byte[] digitalDataPacket)
+        {
+            byte[] digitalData = ExtractDigitalDataFromPacket(digitalDataPacket);
+            digitalDataBuffer.Add(digitalData);
+        }
+
+        private byte[] ExtractDigitalDataFromPacket(byte[] digitalDataPacket)
+        {
+            byte[] extractedData = null;
+
+            for (int sampleNumber = 0; sampleNumber < _numberOfDigitalDataSamples; sampleNumber++)
+            {
+                int copyStart = 2 + (sampleNumber * 19);
+                int pasteStart = sampleNumber * 17;
+                Array.Copy(digitalDataPacket, copyStart, extractedData, pasteStart, 17);
+            }
+
+            return extractedData;
+        }
+
         private void EnqueueDigitalData(byte[] digitalData)
         {
-            lock (packetQueue)
+            lock (digitalDataBuffer)
             {
-                packetQueue.Enqueue(digitalData);
+                digitalDataBuffer.Add(digitalData);
             }
         }
 
-        private void ProcessBufferedPackets()
+        public void SendCommand(byte[] command)
         {
-            while (true)
+            try
             {
-                byte[] bufferedData;
-
-                lock (packetQueue)
+                if (tcpClient == null || !tcpClient.Connected)
                 {
-                    if (packetQueue.Count > 0)
-                    {
-                        bufferedData = packetQueue.Dequeue();
-                    }
-                    else
-                    {
-                        // No more packets in the queue, exit the loop
-                        break;
-                    }
+                    Console.WriteLine("Error: TcpClient is not connected.");
+                    return;
                 }
 
-                // Process or buffer the digital data
-                ProcessDigitalData(bufferedData);
+                NetworkStream networkStream = tcpClient.GetStream();
+                networkStream.Write(command, 0, command.Length);
+                Console.WriteLine($"Command sent successfully: {BitConverter.ToString(command)}");
             }
-        }
+            catch (Exception ex)
+            {
 
-        public void HandleCommand(byte[] commandData)
-        {
-            // Add logic to handle the command received from the hardware
-            // For example, send a response back to the hardware or perform an action
-            // You can access this.clientStream to send data back to the hardware
-
-            // After handling the command, process any buffered digital data
-            ProcessBufferedPackets();
-        }
-
-        public void ProcessDigitalData(byte[] digitalData)
-        {
-            // Add logic to process or buffer the digital data received from the hardware
+                throw new TCPSendMessageException($"Error sending command: {ex.Message}");
+            }
         }
     }
 }

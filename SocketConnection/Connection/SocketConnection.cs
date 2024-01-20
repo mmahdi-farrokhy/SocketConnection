@@ -3,10 +3,9 @@
     public interface SocketConnection
     {
         void StartConnection();
+        void StopConnection();
         bool IsConnected();
         void ListenForData();
-        void HandleCommand(byte[] commandData);
-        void ProcessDigitalData(byte[] digitalData);
+        void SendCommand(byte[] command);
     }
-
 }
