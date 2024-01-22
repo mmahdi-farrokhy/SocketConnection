@@ -1,10 +1,8 @@
-﻿using System.Net.Sockets;
-
-namespace SocketConnection
+﻿namespace SocketConnection
 {
     public class Packet
     {
-        public int DeviceActiveChannelsCount { get; set; }
+        public int DeviceActiveChannelsCount { get; set; } = 4;
         public int CommandChannelCount { get; set; }
         public int SampleCount { get; set; }
         public int HeaderLength { get; set; }

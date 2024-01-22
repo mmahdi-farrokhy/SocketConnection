@@ -5,13 +5,10 @@ namespace SocketConnection.Data
 {
     public class DigitalData : Sample
     {
-        public int NumberOfActiveDataChannels { get; set; }
-
         public DigitalData()
         {
             Length = 17;
             Body = new byte[Length];
-            NumberOfActiveDataChannels = 4;
         }
 
         public override bool Equals(object obj)

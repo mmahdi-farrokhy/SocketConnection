@@ -32,7 +32,7 @@ namespace SocketConnection
             if (!_connection.IsConnected())
                 MessageBox.Show("Connection failed");
 
-            _connection.ListenForData();
+            _connection.ReadSocketDataBuffer();
             storeDigitalData = new Thread(ReadDigitalDataBuffer);
             storeDigitalData.Start();
 
@@ -92,16 +92,13 @@ namespace SocketConnection
 
         private void GetSerialData()
         {
-            var task = Task.Factory.StartNew(() =>
+            try
             {
-                try
-                {
-                    serialDataBuffer.TryTake(out byte[] serialBuffer);
-                    UpdateTextBox(serialBuffer, serialSampleCounter);
-                }
-                catch
-                { }
-            });
+                serialDataBuffer.TryTake(out byte[] serialBuffer);
+                UpdateTextBox(serialBuffer, serialSampleCounter);
+            }
+            catch
+            { }
         }
 
         private void UpdateTextBox(byte[] digitalBuffer, int counter)
@@ -121,7 +118,6 @@ namespace SocketConnection
                     foreach (byte b in digitalBuffer)
                     {
                         txtDataBuffer.Text += b.ToString("X2") + "    ";
-                        Thread.Sleep(15);
                     }
                 }
             }

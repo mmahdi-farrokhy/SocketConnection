@@ -5,7 +5,7 @@
         void StartConnection();
         void StopConnection();
         bool IsConnected();
-        void ListenForData();
-        void SendCommand(byte[] command);
+        void ReadSocketDataBuffer();
+        bool SendCommand(byte[] command);
     }
 }

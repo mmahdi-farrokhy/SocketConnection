@@ -49,7 +49,7 @@
     <Compile Include="ConnectionConfig.cs" />
     <Compile Include="Exceptions\TCPSendMessageException.cs" />
     <Compile Include="Exceptions\TCPConnectionException.cs" />
-    <Compile Include="Data\HardwareCommand.cs" />
+    <Compile Include="Data\SerialData.cs" />
     <Compile Include="Data\CommandSource.cs" />
     <Compile Include="Data\UARTDataType.cs" />
     <Compile Include="Data\DigitalData.cs" />

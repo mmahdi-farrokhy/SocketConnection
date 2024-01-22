@@ -13,14 +13,14 @@ namespace SocketConnection.Hardware.Tests
     {
         private TCPConnection _connection;
         byte[] stimCommandPacket = new byte[] { 0XFF, 0XFF, 0XFA, 0X05, 0X11, 0X22, 0X33, 0X44, 0X55, 0X66, 0X77, 0X88, 0X99, 0XAA, 0XBB, 0XCC, 0XDD, 0XEE, 0XFF };
-        HardwareCommand expectedStimCommand = new HardwareCommand(0XFA, 5)
+        SerialData expectedStimCommand = new SerialData(0XFA, 5)
         {
             Header = new byte[] { 0XFF, 0XFF, 0XFA },
             Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 }
         };
 
         byte[] headBoxCommandPacket = new byte[] { 0XFF, 0XFF, 0XFB, 0X05, 0X11, 0X22, 0X33, 0X44, 0X55, 0X66, 0X77, 0X88, 0X99, 0XAA, 0XBB, 0XCC, 0XDD, 0XEE, 0XFF };
-        HardwareCommand expectedHeadBoxCommand = new HardwareCommand(0XFB, 5)
+        SerialData expectedHeadBoxCommand = new SerialData(0XFB, 5)
         {
             Header = new byte[] { 0XFF, 0XFF, 0XFB },
             Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 }
@@ -202,10 +202,10 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod()]
         public void ExtractCurrentSampleFromTheReceivedPacket()
         {
-            HardwareCommand stimSample = _connection.ExtractCurrentSample(stimCommandPacket) as HardwareCommand;
+            SerialData stimSample = _connection.ExtractCurrentSample(stimCommandPacket) as SerialData;
             Assert.AreEqual(expectedStimCommand, stimSample);
 
-            HardwareCommand headBoxSample = _connection.ExtractCurrentSample(headBoxCommandPacket) as HardwareCommand;
+            SerialData headBoxSample = _connection.ExtractCurrentSample(headBoxCommandPacket) as SerialData;
             Assert.AreEqual(expectedHeadBoxCommand, headBoxSample);
 
             DigitalData dataSample = _connection.ExtractCurrentSample(dataPacket) as DigitalData;
@@ -216,7 +216,7 @@ namespace SocketConnection.Hardware.Tests
         public void GetADCDigitalDataFromSocket()
         {
             ConnectToMobile("124");
-            byte[] packet = _connection.ReadPacketFromSocket();
+            byte[] packet = _connection.ReadSocketData();
             CollectionAssert.AreEqual(dataPacket, packet);
         }
 
@@ -224,7 +224,7 @@ namespace SocketConnection.Hardware.Tests
         public void GetADCDigitalDataFromSocketAndExtractADigitalDataFromIt()
         {
             ConnectToMobile("124");
-            byte[] packet = _connection.ReadPacketFromSocket();
+            byte[] packet = _connection.ReadSocketData();
             DigitalData digitalDataSample = _connection.ExtractCurrentSample(packet) as DigitalData;
             Assert.AreEqual(expectedADCData, digitalDataSample);
         }
@@ -232,30 +232,30 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod()]
         public void GetHeadBoxSerialDataFromSocket()
         {
-            byte[] packet = _connection.ReadPacketFromSocket();
+            byte[] packet = _connection.ReadSocketData();
             CollectionAssert.AreEqual(headBoxCommandPacket, packet);
         }
 
         [TestMethod()]
         public void GetHeadBoxSerialDataFromSocketAndExtractAHeadBoxCommandFromIt()
         {
-            byte[] packet = _connection.ReadPacketFromSocket();
-            HardwareCommand headBoxSample = _connection.ExtractCurrentSample(packet) as HardwareCommand;
+            byte[] packet = _connection.ReadSocketData();
+            SerialData headBoxSample = _connection.ExtractCurrentSample(packet) as SerialData;
             Assert.AreEqual(expectedHeadBoxCommand, headBoxSample);
         }
 
         [TestMethod()]
         public void GetStimSerialDataFromSocket()
         {
-            byte[] packet = _connection.ReadPacketFromSocket();
+            byte[] packet = _connection.ReadSocketData();
             CollectionAssert.AreEqual(stimCommandPacket, packet);
         }
 
         [TestMethod()]
         public void GetStimSerialDataFromSocketAndExtractAStimCommandFromIt()
         {
-            byte[] packet = _connection.ReadPacketFromSocket();
-            HardwareCommand stimSample = _connection.ExtractCurrentSample(packet) as HardwareCommand;
+            byte[] packet = _connection.ReadSocketData();
+            SerialData stimSample = _connection.ExtractCurrentSample(packet) as SerialData;
             Assert.AreEqual(expectedStimCommand, stimSample);
         }
 
@@ -287,7 +287,7 @@ namespace SocketConnection.Hardware.Tests
         public void GetPacketsInAThread()
         {
             ConnectToMobile("124");
-            Task readSocket = Task.Factory.StartNew(() => _connection.ListenForData());
+            Task readSocket = Task.Factory.StartNew(() => _connection.ReadSocketDataBuffer());
             byte[] digitalDataBuffer = _connection.ReadDigitalDataBuffer();
             if (digitalDataBuffer.GetLength(0) > 0 && digitalDataBuffer.GetLength(1) > 0)
             {

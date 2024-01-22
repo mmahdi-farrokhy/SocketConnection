@@ -5,10 +5,10 @@ using System.Net.Sockets;
 namespace SocketConnection.Hardware
 {
     using System.Collections.Concurrent;
-    using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
     using System.Threading.Tasks;
+    using System.Windows.Forms;
 
     public class TCPConnection : SocketConnection
     {
@@ -25,7 +25,10 @@ namespace SocketConnection.Hardware
         private const byte SAMPLE_INITIALIZER = 0xFF;
         private const byte STIM_COMMAND_MARKER = 0xFA;
         private const byte HEAD_BOX_COMMAND_MARKER = 0xFB;
-        private int _numberOfDigitalDataSamples;
+        private Packet _packet;
+        private readonly byte[] START_COMMAND = new byte[] { 0XFF, 0X31 };
+        private readonly byte[] STOP_COMMAND = new byte[] { 0XFF, 0X31 };
+
 
         public TCPConnection(string ip, int port)
         {
@@ -81,7 +84,7 @@ namespace SocketConnection.Hardware
             return tcpClient.Connected;
         }
 
-        public byte[] ReadPacketFromSocket()
+        public byte[] ReadSocketData()
         {
             int adcDigitalDataLength = 1330;
             int uartSerialDataLength = 19;
@@ -111,41 +114,35 @@ namespace SocketConnection.Hardware
             return packet;
         }
 
-        public void ListenForData()
+        public void ReadSocketDataBuffer()
         {
             try
             {
-                var task = Task.Factory.StartNew(() =>
+                while (IsConnected() && SendCommand(START_COMMAND))
                 {
-                    while (IsConnected())
-                    {
-                        byte[] packet = new byte[PACKET_SIZE];
-                        int bytesRead = tcpClient.GetStream().Read(packet, 0, PACKET_SIZE);
-                        if (bytesRead < PACKET_SIZE)
-                        {
-                            Array.Resize<byte>(ref packet, bytesRead);
-                        }
+                    byte[] packet = new byte[PACKET_SIZE];
+                    int bytesRead = tcpClient.GetStream().Read(packet, 0, PACKET_SIZE);
+                    int remainingDigitalDataBytes = 0;
+                    int remainingSerialDataBytes = 0;
 
-                        if (bytesRead > 0)
+                    if (bytesRead < PACKET_SIZE)
+                    {
+                        Array.Resize<byte>(ref packet, bytesRead);
+                    }
+
+                    if (bytesRead > 0)
+                    {
+                        Sample currentSample = ExtractCurrentSample(packet);
+                        if (currentSample is SerialData)
                         {
-                            Sample currentSample = ExtractCurrentSample(packet);
-                            if (currentSample is HardwareCommand)
-                            {
-                                HandleCommand(currentSample as HardwareCommand);
-                            }
-                            else
-                            {
-                                _numberOfDigitalDataSamples = bytesRead / 19;
-                                ProcessDigitalData(packet);
-                            }
+                            serialDataBuffer.Add(currentSample.Body);
                         }
-                        else
+                        else if (currentSample is DigitalData)
                         {
-                            //break;
+                            digitalDataBuffer.Add(currentSample.Body);
                         }
                     }
                 }
-                );
             }
             catch (Exception ex)
             {
@@ -171,7 +168,7 @@ namespace SocketConnection.Hardware
                             if (thirdSampleByte == HEAD_BOX_COMMAND_MARKER || thirdSampleByte == STIM_COMMAND_MARKER)
                             { // UART Serial Data
                                 int commandLength = packet[packetByteIndex + 3];
-                                currentSample = new HardwareCommand(thirdSampleByte, commandLength);
+                                currentSample = new SerialData(commandLength);
                                 currentSample.Header = new byte[] { 0xFF, 0xFF, thirdSampleByte };
                                 int commandStartIndex = packetByteIndex + 4;
                                 Array.Copy(packet, commandStartIndex, currentSample.Body, 0, currentSample.Length);
@@ -193,20 +190,9 @@ namespace SocketConnection.Hardware
             return currentSample;
         }
 
-        public void HandleCommand(HardwareCommand hardwareCommand)
-        {
-            serialDataBuffer.Add(hardwareCommand.Body);
-        }
-
-        public void ProcessDigitalData(byte[] digitalDataPacket)
-        {
-            byte[] digitalData = ExtractDigitalDataFromPacket(digitalDataPacket, _numberOfDigitalDataSamples);
-            BufferDigitalData(digitalData);
-        }
-
         public byte[] ExtractDigitalDataFromPacket(byte[] digitalDataPacket, int numberOfSamples)
         {
-            byte[] extractedData = new byte[numberOfSamples * 17];
+            byte[] extractedData = new byte[digitalDataPacket.Length];
 
             for (int sampleNumber = 0; sampleNumber < numberOfSamples; sampleNumber++)
             {
@@ -218,33 +204,26 @@ namespace SocketConnection.Hardware
             return extractedData;
         }
 
-        private void BufferDigitalData(byte[] digitalData)
+        public bool SendCommand(byte[] command)
         {
-            lock (digitalDataBuffer)
-            {
-                digitalDataBuffer.Add(digitalData);
-            }
-        }
-
-        public void SendCommand(byte[] command)
-        {
+            bool isSent = false;
             try
             {
-                if (tcpClient == null || !tcpClient.Connected)
+                if (tcpClient != null && tcpClient.Connected)
                 {
-                    Console.WriteLine("Error: TcpClient is not connected.");
-                    return;
-                }
 
-                NetworkStream networkStream = tcpClient.GetStream();
-                networkStream.Write(command, 0, command.Length);
-                Console.WriteLine($"Command sent successfully: {BitConverter.ToString(command)}");
+                    NetworkStream networkStream = tcpClient.GetStream();
+                    networkStream.Write(command, 0, command.Length);
+                    Console.WriteLine($"Command sent successfully: {BitConverter.ToString(command)}");
+                    isSent = true;
+                }
             }
             catch (Exception ex)
             {
-
                 throw new TCPSendMessageException($"Error sending command: {ex.Message}");
             }
+
+            return isSent;
         }
 
         public byte[] ReadDigitalDataBuffer()
