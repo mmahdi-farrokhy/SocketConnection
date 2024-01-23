@@ -2,7 +2,7 @@
 {
     public enum DataProcessingMode
     {
-        ImmediateProcessing,
+        ImmediateDrawing,
         BufferedProcessing
     }
 }

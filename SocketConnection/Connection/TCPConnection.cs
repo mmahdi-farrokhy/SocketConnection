@@ -6,37 +6,33 @@ namespace SocketConnection.Hardware
 {
     using System.Collections.Concurrent;
     using System.Diagnostics;
+    using System.Windows.Forms;
 
     public class TCPConnection : SocketConnection
     {
-        private TcpClient tcpClient;
-        private BlockingCollection<byte[]> socketBuffer;
-        private BlockingCollection<byte[]> digitalDataBuffer;
-        private BlockingCollection<byte[]> serialDataBuffer;
+        private TcpClient _tcpClient;
+        private BlockingCollection<byte[]> _socketPacketBuffer;
+        private BlockingCollection<byte[]> _digitalDataBuffer;
+        private BlockingCollection<byte[]> _serialDataBuffer;
         private string IP = "192.168.3.xxx";
         private int Port = 5000;
         private const int ATTEMPTS_LIMIT = 5;
         private const int TIMEOUT = 5000;
-        private const int SAMPLE_SIZE = 19;
-        private const int SAMPLE_PER_PACKET = 70;
-        private const int PACKET_SIZE = SAMPLE_SIZE * SAMPLE_PER_PACKET;
-        private const byte SAMPLE_INITIALIZER = 0xFF;
-        private const byte STIM_COMMAND_MARKER = 0xFA;
-        private const byte HEAD_BOX_COMMAND_MARKER = 0xFB;
-        private Packet _packet;
         private readonly byte[] START_COMMAND = new byte[] { 0XFF, 0X31 };
         private readonly byte[] STOP_COMMAND = new byte[] { 0XFF, 0X31 };
         private DataProcessingMode _processingMode;
         private Test _currentTes;
+        int collectionCapacity = 10 * 1000;
+        private bool Helper_DefaultInstance_ApplicationIsRunning = true;
 
         public TCPConnection(string ip, int port, DataProcessingMode processingMode)
         {
             IP = ip;
             Port = port;
-            tcpClient = new TcpClient();
-            socketBuffer = new BlockingCollection<byte[]>();
-            digitalDataBuffer = new BlockingCollection<byte[]>();
-            serialDataBuffer = new BlockingCollection<byte[]>();
+            _tcpClient = new TcpClient();
+            _socketPacketBuffer = new BlockingCollection<byte[]>(collectionCapacity);
+            _digitalDataBuffer = new BlockingCollection<byte[]>(collectionCapacity);
+            _serialDataBuffer = new BlockingCollection<byte[]>(collectionCapacity);
             StartConnection();
             _processingMode = processingMode;
         }
@@ -49,10 +45,10 @@ namespace SocketConnection.Hardware
             {
                 try
                 {
-                    IAsyncResult result = tcpClient.BeginConnect(IP, Port, null, null);
+                    IAsyncResult result = _tcpClient.BeginConnect(IP, Port, null, null);
                     bool success = result.AsyncWaitHandle.WaitOne(TIMEOUT, true);
 
-                    if (success && tcpClient.Connected)
+                    if (success && _tcpClient.Connected)
                     {
                         Debug.WriteLine("Connection established.");
                         break;
@@ -77,17 +73,17 @@ namespace SocketConnection.Hardware
 
         public void StopConnection()
         {
-            tcpClient.Close();
+            _tcpClient.Close();
         }
 
         public bool IsConnected()
         {
-            return tcpClient.Connected;
+            return _tcpClient.Connected;
         }
 
         public byte[] ReceiveSocketData()
         {
-            byte[] socketData = new byte[PACKET_SIZE];
+            byte[] socketDataPacket = new byte[Packet.TotalPacketLength];
             bool shouldSendFakeCommand = false;
             short attemptsCounter = 0;
 
@@ -101,33 +97,33 @@ namespace SocketConnection.Hardware
             if (shouldSendFakeCommand)
                 SendFakeCommand();
 
-            FlushCollection(ref socketBuffer);
+            FlushCollection(ref _socketPacketBuffer);
             DateTime start = DateTime.UtcNow;
-            //while (IsConnected())
+            while (IsConnected())
             {
                 int totalBytesReceived = 0;
                 bool recv_error = false;
-                //while (totalBytesReceived < PACKET_SIZE)
+                while (totalBytesReceived < Packet.TotalPacketLength)
                 {
-                    int bytesRead = tcpClient.GetStream().Read(socketData, totalBytesReceived, PACKET_SIZE - totalBytesReceived);
+                    int bytesRead = _tcpClient.GetStream().Read(socketDataPacket, totalBytesReceived, Packet.TotalPacketLength - totalBytesReceived);
                     if (bytesRead == -1 || bytesRead == 0)
                     {
                         recv_error = true;
-                        //break;
+                        break;
                     }
 
                     totalBytesReceived += bytesRead;
                 }
 
-                //if (recv_error) continue;
+                if (recv_error) continue;
 
                 if (_processingMode == DataProcessingMode.BufferedProcessing)
                 {
-                    socketBuffer.Add(socketData);
+                    _socketPacketBuffer.Add(socketDataPacket);
                 }
-                else if (_processingMode == DataProcessingMode.ImmediateProcessing)
+                else if (_processingMode == DataProcessingMode.ImmediateDrawing)
                 {
-                    ProcessData(socketData);
+                    CallWaveInProc(socketDataPacket);
                 }
 
                 if (_currentTes == Test.NormalNeedle || _currentTes == Test.CascadeNeedle)
@@ -135,26 +131,16 @@ namespace SocketConnection.Hardware
                     DateTime stop = DateTime.UtcNow;
                     TimeSpan duration = stop.Subtract(start);
                     if (duration.Seconds > 60)
-                        /*break*/;
+                        break;
                 }
             }
 
             attemptsCounter = 0;
             while (!SendCommand(STOP_COMMAND) && attemptsCounter < ATTEMPTS_LIMIT) { }
             if (attemptsCounter >= ATTEMPTS_LIMIT)
-                StopProcessingData();
+                CallOnWaveInStop();
 
-            return socketData;
-        }
-
-        private void StopProcessingData()
-        {
-            throw new NotImplementedException();
-        }
-
-        private void ProcessData(byte[] socketData)
-        {
-            throw new NotImplementedException();
+            return socketDataPacket;
         }
 
         private void SendFakeCommand()
@@ -167,7 +153,7 @@ namespace SocketConnection.Hardware
             for (int ii = 0; ii < fakeLen * fakeCount; ii += fakeLen)
             {
                 fakeCommand[ii + 0] = 0xFF;
-                fakeCommand[ii + 1] = HEAD_BOX_COMMAND_MARKER;
+                fakeCommand[ii + 1] = Packet.HeadBoxCommandMarker;
                 fakeCommand[ii + 2] = fakeLen;
 
                 for (int i = ii + 3; i < ii + fakeLen; i++)
@@ -177,43 +163,178 @@ namespace SocketConnection.Hardware
             {
             }
 
-            bytesRead = tcpClient.GetStream().Read(fakeCommand, 0, fakeLen * fakeCount);
+            bytesRead = _tcpClient.GetStream().Read(fakeCommand, 0, fakeLen * fakeCount);
+        }
+
+        private void CallWaveInProc(byte[] signal)
+        {
+            byte[] channel1Data = new byte[Packet.SignalBufferLength];
+            byte[] channel2Data = new byte[Packet.SignalBufferLength];
+            byte[] channel3Data = new byte[Packet.SignalBufferLength];
+            byte[] channel4Data = new byte[Packet.SignalBufferLength];
+
+            for (int sampleIndex = 0; sampleIndex < Packet.TotalPacketLength; sampleIndex++)
+            {
+                channel1Data[sampleIndex] = (byte)((signal[19 * 0 + 2] * 256) + signal[19 * 0 + 3]);
+                channel2Data[sampleIndex] = (byte)((signal[19 * 0 + 4] * 256) + signal[19 * 0 + 5]);
+                channel3Data[sampleIndex] = (byte)((signal[19 * 0 + 6] * 256) + signal[19 * 0 + 7]);
+                channel4Data[sampleIndex] = (byte)((signal[19 * 0 + 8] * 256) + signal[19 * 0 + 9]);
+
+                channel1Data[sampleIndex] = (byte)((signal[19 * 1 + 21] * 256) + signal[19 * 0 + 3]);
+                channel2Data[sampleIndex] = (byte)((signal[19 * 1 + 4] * 256) + signal[19 * 0 + 5]);
+                channel3Data[sampleIndex] = (byte)((signal[19 * 1 + 6] * 256) + signal[19 * 0 + 7]);
+                channel4Data[sampleIndex] = (byte)((signal[19 * 1 + 8] * 256) + signal[19 * 0 + 9]);
+            }
+        }
+
+        private void CallOnWaveInStop()
+        {
+
         }
 
         public void ReadSocketDataBuffer()
         {
             try
             {
-                while (IsConnected() && SendCommand(START_COMMAND))
-                {
-                    byte[] packet = new byte[PACKET_SIZE];
-                    int bytesRead = tcpClient.GetStream().Read(packet, 0, PACKET_SIZE);
-                    int remainingDigitalDataBytes = 0;
-                    int remainingSerialDataBytes = 0;
+                byte[] signal = new byte[Packet.SignalBufferLength];
+                byte[] command = new byte[Packet.CommandBufferLength];
+                int sampleIndexInPacket = 0;
+                int signalOverlapBytes = 0;
+                int commandOverlapBytes = 0;
+                int commandCounter = 0;
+                int signalCounter = 0;
+                byte[] packetFromBuffer;
 
-                    if (bytesRead < PACKET_SIZE)
+                while (IsConnected() && Helper_DefaultInstance_ApplicationIsRunning)
+                {
+                    bool couldReadData = _socketPacketBuffer.TryTake(out packetFromBuffer, 10);
+                    if (!couldReadData)
+                        continue;
+
+                    if (signalOverlapBytes > 0)
                     {
-                        Array.Resize<byte>(ref packet, bytesRead);
+                        sampleIndexInPacket = CopyFromPacketBufferTo(ref signal, packetFromBuffer, signalOverlapBytes, signalCounter);
+                        if (signalCounter == Packet.SignalBufferLimit)
+                        {
+                            CallWaveInProc(signal);
+                            signalCounter = 0;
+                        }
+                    }
+                    else if (commandOverlapBytes > 0)
+                    {
+                        sampleIndexInPacket = CopyFromPacketBufferTo(ref command, packetFromBuffer, commandOverlapBytes, commandCounter);
+                        if (commandCounter == Packet.CommandBufferLimit)
+                        {
+                            AnalyzeStimCommand(command, Packet.CommandBufferLength);
+                            commandCounter = 0;
+                        }
+                    }
+                    else
+                    {
+                        sampleIndexInPacket = 0;
                     }
 
-                    if (bytesRead > 0)
+                    if (sampleIndexInPacket < Packet.TotalPacketLength)
                     {
-                        Sample currentSample = ExtractCurrentSample(packet);
-                        if (currentSample is SerialData)
+                        DataType currentData = DetectDataType(packetFromBuffer, sampleIndexInPacket);
+                        if (currentData == DataType.SerialData)
                         {
-                            serialDataBuffer.Add(currentSample.Body);
+                            if (sampleIndexInPacket <= Packet.TotalPacketLength - Packet.SampleLength)
+                            {
+                                Array.Copy(packetFromBuffer, sampleIndexInPacket, command, Packet.SampleLength * commandCounter, Packet.SampleLength);
+                                commandCounter++;
+                                if (commandCounter == Packet.CommandBufferLimit)
+                                {
+                                    AnalyzeStimCommand(command, Packet.CommandBufferLength);
+                                    commandCounter = 0;
+                                }
+                            }
+                            else
+                            {
+                                Array.Copy(packetFromBuffer, sampleIndexInPacket, command, Packet.SampleLength * commandCounter, Packet.TotalPacketLength - sampleIndexInPacket);
+                                commandCounter++;
+                                commandOverlapBytes = Packet.SampleLength - (Packet.TotalPacketLength - sampleIndexInPacket);
+                            }
+
+                            sampleIndexInPacket += Packet.SampleLength;
                         }
-                        else if (currentSample is DigitalData)
+                        else if (currentData == DataType.DigitalData)
                         {
-                            digitalDataBuffer.Add(currentSample.Body);
+                            if (sampleIndexInPacket <= Packet.TotalPacketLength - Packet.SampleLength)
+                            {
+                                Array.Copy(packetFromBuffer, sampleIndexInPacket, signal, Packet.SampleLength * signalCounter, Packet.SampleLength);
+                                signalCounter++;
+                                if (signalCounter == Packet.SignalBufferLimit)
+                                {
+                                    CallWaveInProc(signal);
+                                    signalCounter = 0;
+                                }
+                            }
+                            else
+                            {
+                                Array.Copy(packetFromBuffer, sampleIndexInPacket, signal, Packet.SampleLength * signalCounter, Packet.TotalPacketLength - sampleIndexInPacket);
+                                signalCounter++;
+                                signalOverlapBytes = Packet.SampleLength - (Packet.TotalPacketLength - sampleIndexInPacket);
+                            }
+
+                            sampleIndexInPacket += Packet.SampleLength;
+                        }
+                        else
+                        {
+                            sampleIndexInPacket = 0;
                         }
                     }
                 }
+
+                PopCollectionElements(_socketPacketBuffer);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error listening for data: {ex.Message}");
+                MessageBox.Show($"Error listening for data: {ex.Message}");
             }
+        }
+
+        private static int CopyFromPacketBufferTo(ref byte[] destinationBuffer, byte[] sourcePacket, int overlapBytes, int counter)
+        {
+            int IndexInPacket = overlapBytes;
+            int TargetIndex = Packet.SampleLength * counter - overlapBytes;
+            Array.Copy(sourcePacket, 0, destinationBuffer, TargetIndex, overlapBytes);
+            return IndexInPacket;
+        }
+
+        private void PopCollectionElements(BlockingCollection<byte[]> socketPacketBuffer)
+        {
+            byte[] temp;
+            bool status = socketPacketBuffer.TryTake(out temp, TimeSpan.FromMilliseconds(10));
+            while (status)
+            {
+                status = socketPacketBuffer.TryTake(out temp, TimeSpan.FromMilliseconds(10));
+            }
+        }
+
+        private DataType DetectDataType(byte[] packet, int sampleStartIndex)
+        {
+            DataType type = DataType.DigitalData;
+
+            if (packet[sampleStartIndex] == Packet.SampleInitializer)
+            {
+                if (packet[sampleStartIndex + 1] == Packet.SampleInitializer)
+                {
+                    type = DataType.DigitalData;
+
+                    if (packet[sampleStartIndex + 2] == Packet.HeadBoxCommandMarker || packet[sampleStartIndex + 2] == Packet.StimCommandMarker)
+                    {
+                        type = DataType.SerialData;
+                    }
+                }
+            }
+
+            return type;
+        }
+
+        private void AnalyzeStimCommand(byte[] command, int commandDecodeLength)
+        {
+
         }
 
         public Sample ExtractCurrentSample(byte[] packet)
@@ -227,11 +348,11 @@ namespace SocketConnection.Hardware
                     byte firstSampleByte = packet[packetByteIndex];
                     byte secondSampleByte = packet[packetByteIndex + 1];
                     byte thirdSampleByte = packet[packetByteIndex + 2];
-                    if (firstSampleByte == SAMPLE_INITIALIZER)
+                    if (firstSampleByte == Packet.SampleInitializer)
                     {
-                        if (secondSampleByte == SAMPLE_INITIALIZER)
+                        if (secondSampleByte == Packet.SampleInitializer)
                         {
-                            if (thirdSampleByte == HEAD_BOX_COMMAND_MARKER || thirdSampleByte == STIM_COMMAND_MARKER)
+                            if (thirdSampleByte == Packet.HeadBoxCommandMarker || thirdSampleByte == Packet.StimCommandMarker)
                             { // UART Serial Data
                                 int commandLength = packet[packetByteIndex + 3];
                                 currentSample = new SerialData(commandLength);
@@ -275,9 +396,9 @@ namespace SocketConnection.Hardware
             bool isSent = false;
             try
             {
-                if (tcpClient.Connected)
+                if (_tcpClient.Connected)
                 {
-                    NetworkStream networkStream = tcpClient.GetStream();
+                    NetworkStream networkStream = _tcpClient.GetStream();
                     networkStream.Write(command, 0, command.Length);
                     Console.WriteLine($"Command sent successfully: {BitConverter.ToString(command)}");
                     isSent = true;
@@ -293,13 +414,13 @@ namespace SocketConnection.Hardware
 
         public byte[] ReadDigitalDataBuffer()
         {
-            digitalDataBuffer.TryTake(out byte[] digitialData);
+            _digitalDataBuffer.TryTake(out byte[] digitialData);
             return digitialData;
         }
 
         public byte[] ReadSerialDataBuffer()
         {
-            serialDataBuffer.TryTake(out byte[] serialData);
+            _serialDataBuffer.TryTake(out byte[] serialData);
             return serialData;
         }
 

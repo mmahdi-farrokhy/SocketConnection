@@ -1,16 +1,27 @@
 ﻿namespace SocketConnection
 {
-    public class Packet
+    public static class Packet
     {
-        public int DeviceActiveChannelsCount { get; set; } = 4;
-        public int CommandChannelCount { get; set; }
-        public int SampleCount { get; set; }
-        public int HeaderLength { get; set; }
-        public int BodyLength { get { return 2 * CommandChannelCount + 1; } }
-        public int SentPacketStartLength { get; set; }
-        public int TotalPacketLength { get { return HeaderLength + SampleCount * BodyLength; } }
-        public int DecodedDataLength { get { return DeviceActiveChannelsCount * SampleCount + 1; } }
-        public byte HeadBoxCommand { get; set; }
-        public byte StimBoxCommand { get; set; }
+        private static int _hardwareChannelCount = 4;
+        private static int _commandChannelCount = 8;
+        private static int _samplePerPacket = 70;
+        private static int _headerLength = 2;
+        private static int _signalBufferCount = 70;
+        private static int _commandBufferCount = 1;
+        private static int _bodyLength = 2 * _commandChannelCount + 1;
+        private static int _sampleLength = _headerLength + _bodyLength;
+        private static byte _sampleInitializer = 0xFF;
+        private static int _sampleRate = 128000;
+
+        public static int SampleLength { get { return _sampleLength; } }
+        public static int SignalBufferLimit { get { return _signalBufferCount; } }
+        public static int CommandBufferLimit { get { return _commandBufferCount; } }
+        public static int TotalPacketLength { get { return _sampleLength * _samplePerPacket; } }
+        public static int SignalBufferLength { get { return _signalBufferCount * _sampleLength; } }
+        public static int CommandBufferLength { get { return _commandBufferCount * _sampleLength; } }
+        public static int SampleRate { get { return _sampleRate; } }
+        public static byte SampleInitializer { get { return _sampleInitializer; } }
+        public static byte StimCommandMarker { get { return 0xFA; } }
+        public static byte HeadBoxCommandMarker { get { return 0xFB; } }
     }
 }

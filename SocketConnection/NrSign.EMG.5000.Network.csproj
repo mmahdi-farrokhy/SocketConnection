@@ -49,6 +49,7 @@
     <Compile Include="ConnectionConfig.cs" />
     <Compile Include="Connection\Test.cs" />
     <Compile Include="DataProcessingMode.cs" />
+    <Compile Include="DataType.cs" />
     <Compile Include="Exceptions\TCPSendMessageException.cs" />
     <Compile Include="Exceptions\TCPConnectionException.cs" />
     <Compile Include="Data\SerialData.cs" />
