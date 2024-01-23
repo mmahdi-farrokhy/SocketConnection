@@ -5,3 +5,4 @@ packages
 */obj
 *.pdb
 *.exe
+/NrSign.EMG.5000.NetworkTests1/bin/Debug/NrSign.EMG.5000.NetworkTests1.pdb

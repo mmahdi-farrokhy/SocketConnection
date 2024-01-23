@@ -22,7 +22,7 @@ namespace SocketConnection
         public Form1()
         {
             InitializeComponent();
-            _connection = new TCPConnection(IP, 5000);
+            _connection = new TCPConnection(IP, 5000, DataProcessingMode.BufferedProcessing);
             digitalDataBuffer = new BlockingCollection<byte[]>();
             serialDataBuffer = new BlockingCollection<byte[]>();
         }

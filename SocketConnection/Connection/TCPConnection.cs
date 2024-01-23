@@ -6,18 +6,16 @@ namespace SocketConnection.Hardware
 {
     using System.Collections.Concurrent;
     using System.Diagnostics;
-    using System.Linq;
-    using System.Threading.Tasks;
-    using System.Windows.Forms;
 
     public class TCPConnection : SocketConnection
     {
         private TcpClient tcpClient;
+        private BlockingCollection<byte[]> socketBuffer;
         private BlockingCollection<byte[]> digitalDataBuffer;
         private BlockingCollection<byte[]> serialDataBuffer;
         private string IP = "192.168.3.xxx";
         private int Port = 5000;
-        private const int NUMBER_OF_ATTEMPTS = 5;
+        private const int ATTEMPTS_LIMIT = 5;
         private const int TIMEOUT = 5000;
         private const int SAMPLE_SIZE = 19;
         private const int SAMPLE_PER_PACKET = 70;
@@ -28,23 +26,26 @@ namespace SocketConnection.Hardware
         private Packet _packet;
         private readonly byte[] START_COMMAND = new byte[] { 0XFF, 0X31 };
         private readonly byte[] STOP_COMMAND = new byte[] { 0XFF, 0X31 };
+        private DataProcessingMode _processingMode;
+        private Test _currentTes;
 
-
-        public TCPConnection(string ip, int port)
+        public TCPConnection(string ip, int port, DataProcessingMode processingMode)
         {
             IP = ip;
             Port = port;
             tcpClient = new TcpClient();
+            socketBuffer = new BlockingCollection<byte[]>();
             digitalDataBuffer = new BlockingCollection<byte[]>();
             serialDataBuffer = new BlockingCollection<byte[]>();
             StartConnection();
+            _processingMode = processingMode;
         }
 
         public void StartConnection()
         {
             int attemptCounter = 0;
 
-            while (attemptCounter < NUMBER_OF_ATTEMPTS)
+            while (attemptCounter < ATTEMPTS_LIMIT)
             {
                 try
                 {
@@ -68,9 +69,9 @@ namespace SocketConnection.Hardware
                 }
             }
 
-            if (attemptCounter >= NUMBER_OF_ATTEMPTS)
+            if (attemptCounter >= ATTEMPTS_LIMIT)
             {
-                throw new TCPConnectionException($"Failed to connect after {NUMBER_OF_ATTEMPTS} attempts.");
+                throw new TCPConnectionException($"Failed to connect after {ATTEMPTS_LIMIT} attempts.");
             }
         }
 
@@ -84,34 +85,99 @@ namespace SocketConnection.Hardware
             return tcpClient.Connected;
         }
 
-        public byte[] ReadSocketData()
+        public byte[] ReceiveSocketData()
         {
-            int adcDigitalDataLength = 1330;
-            int uartSerialDataLength = 19;
-            int headerLength = 3;
-            int bodyLength = 0;
-            byte[] header = new byte[headerLength];
-            byte[] body = new byte[0];
-            byte[] packet = new byte[0];
+            byte[] socketData = new byte[PACKET_SIZE];
+            bool shouldSendFakeCommand = false;
+            short attemptsCounter = 0;
 
-            tcpClient.GetStream().Read(header, 0, headerLength);
+            while (!SendCommand(START_COMMAND) && attemptsCounter++ < ATTEMPTS_LIMIT) { }
 
-            if (header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFA }) || header.SequenceEqual(new byte[] { 0XFF, 0XFF, 0XFB }))
+            if (attemptsCounter >= ATTEMPTS_LIMIT)
             {
-                bodyLength = uartSerialDataLength - 3;
-                packet = new byte[uartSerialDataLength];
-            }
-            else if (header.Take(2).SequenceEqual(new byte[] { 0XFF, 0XFF }))
-            {
-                bodyLength = adcDigitalDataLength - 3;
-                packet = new byte[adcDigitalDataLength];
+                throw new TCPSendMessageException("Could not send start command to the hardware");
             }
 
-            body = new byte[bodyLength];
-            tcpClient.GetStream().Read(body, 0, bodyLength);
-            Buffer.BlockCopy(header, 0, packet, 0, headerLength);
-            Buffer.BlockCopy(body, 0, packet, headerLength, bodyLength);
-            return packet;
+            if (shouldSendFakeCommand)
+                SendFakeCommand();
+
+            FlushCollection(ref socketBuffer);
+            DateTime start = DateTime.UtcNow;
+            //while (IsConnected())
+            {
+                int totalBytesReceived = 0;
+                bool recv_error = false;
+                //while (totalBytesReceived < PACKET_SIZE)
+                {
+                    int bytesRead = tcpClient.GetStream().Read(socketData, totalBytesReceived, PACKET_SIZE - totalBytesReceived);
+                    if (bytesRead == -1 || bytesRead == 0)
+                    {
+                        recv_error = true;
+                        //break;
+                    }
+
+                    totalBytesReceived += bytesRead;
+                }
+
+                //if (recv_error) continue;
+
+                if (_processingMode == DataProcessingMode.BufferedProcessing)
+                {
+                    socketBuffer.Add(socketData);
+                }
+                else if (_processingMode == DataProcessingMode.ImmediateProcessing)
+                {
+                    ProcessData(socketData);
+                }
+
+                if (_currentTes == Test.NormalNeedle || _currentTes == Test.CascadeNeedle)
+                {
+                    DateTime stop = DateTime.UtcNow;
+                    TimeSpan duration = stop.Subtract(start);
+                    if (duration.Seconds > 60)
+                        /*break*/;
+                }
+            }
+
+            attemptsCounter = 0;
+            while (!SendCommand(STOP_COMMAND) && attemptsCounter < ATTEMPTS_LIMIT) { }
+            if (attemptsCounter >= ATTEMPTS_LIMIT)
+                StopProcessingData();
+
+            return socketData;
+        }
+
+        private void StopProcessingData()
+        {
+            throw new NotImplementedException();
+        }
+
+        private void ProcessData(byte[] socketData)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void SendFakeCommand()
+        {
+            int attemptNember = 0;
+            int bytesRead;
+            const int fakeLen = 13;
+            const int fakeCount = 100;
+            byte[] fakeCommand = new byte[fakeLen * fakeCount];
+            for (int ii = 0; ii < fakeLen * fakeCount; ii += fakeLen)
+            {
+                fakeCommand[ii + 0] = 0xFF;
+                fakeCommand[ii + 1] = HEAD_BOX_COMMAND_MARKER;
+                fakeCommand[ii + 2] = fakeLen;
+
+                for (int i = ii + 3; i < ii + fakeLen; i++)
+                    fakeCommand[i] = 0;
+            }
+            while (!SendCommand(fakeCommand) && attemptNember++ < ATTEMPTS_LIMIT)
+            {
+            }
+
+            bytesRead = tcpClient.GetStream().Read(fakeCommand, 0, fakeLen * fakeCount);
         }
 
         public void ReadSocketDataBuffer()
@@ -192,7 +258,7 @@ namespace SocketConnection.Hardware
 
         public byte[] ExtractDigitalDataFromPacket(byte[] digitalDataPacket, int numberOfSamples)
         {
-            byte[] extractedData = new byte[digitalDataPacket.Length];
+            byte[] extractedData = new byte[numberOfSamples * 17];
 
             for (int sampleNumber = 0; sampleNumber < numberOfSamples; sampleNumber++)
             {
@@ -209,18 +275,17 @@ namespace SocketConnection.Hardware
             bool isSent = false;
             try
             {
-                if (tcpClient != null && tcpClient.Connected)
+                if (tcpClient.Connected)
                 {
-
                     NetworkStream networkStream = tcpClient.GetStream();
                     networkStream.Write(command, 0, command.Length);
                     Console.WriteLine($"Command sent successfully: {BitConverter.ToString(command)}");
                     isSent = true;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                throw new TCPSendMessageException($"Error sending command: {ex.Message}");
+                isSent = false;
             }
 
             return isSent;
@@ -236,6 +301,11 @@ namespace SocketConnection.Hardware
         {
             serialDataBuffer.TryTake(out byte[] serialData);
             return serialData;
+        }
+
+        public void FlushCollection(ref BlockingCollection<byte[]> collection)
+        {
+            while (collection.TryTake(out _)) { }
         }
     }
 }

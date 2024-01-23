@@ -2,6 +2,7 @@
 using SocketConnection.Data;
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.Remoting.Messaging;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,17 +14,19 @@ namespace SocketConnection.Hardware.Tests
     {
         private TCPConnection _connection;
         byte[] stimCommandPacket = new byte[] { 0XFF, 0XFF, 0XFA, 0X05, 0X11, 0X22, 0X33, 0X44, 0X55, 0X66, 0X77, 0X88, 0X99, 0XAA, 0XBB, 0XCC, 0XDD, 0XEE, 0XFF };
-        SerialData expectedStimCommand = new SerialData(0XFA, 5)
+        SerialData expectedStimCommand = new SerialData(0XFA)
         {
             Header = new byte[] { 0XFF, 0XFF, 0XFA },
-            Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 }
+            Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 },
+            Length = 5
         };
 
         byte[] headBoxCommandPacket = new byte[] { 0XFF, 0XFF, 0XFB, 0X05, 0X11, 0X22, 0X33, 0X44, 0X55, 0X66, 0X77, 0X88, 0X99, 0XAA, 0XBB, 0XCC, 0XDD, 0XEE, 0XFF };
-        SerialData expectedHeadBoxCommand = new SerialData(0XFB, 5)
+        SerialData expectedHeadBoxCommand = new SerialData(0XFB)
         {
             Header = new byte[] { 0XFF, 0XFF, 0XFB },
-            Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 }
+            Body = new byte[] { 0X11, 0X22, 0X33, 0X44, 0X55 },
+            Length = 5
         };
 
         byte[] dataPacket = new byte[] { 0XFF, 0XFF, 0X01, 0X02, 0X03, 0X04, 0X05, 0X06, 0X07, 0X08, 0X09, 0X10, 0X11, 0X12, 0X13, 0X14, 0X15, 0X16, 0X17,
@@ -179,29 +182,22 @@ namespace SocketConnection.Hardware.Tests
             0XFF, 0XFA, 0X05, 0X00, 0X11, 0X22, 0X33, 0X44, 0X55, 0X66, 0X77, 0X88, 0X99, 0XAA, 0XBB, 0XCC, 0XDD, 0XEE, 0XFF
         };
 
-        private void ConnectToMobile(string ip4thSection)
+        private void Connect(string ip4thSection)
         {
-            var x = "192.168.3." + ip4thSection;
-            _connection = new TCPConnection(x, 5000);
-            _connection.StartConnection();
-        }
-
-        [TestInitialize]
-        public void Init()
-        {
-            _connection = new TCPConnection("192.168.3.128", 5000);
-            _connection.StartConnection();
+            _connection = new TCPConnection("192.168.3." + ip4thSection, 5000, DataProcessingMode.BufferedProcessing);
         }
 
         [TestMethod()]
         public void CheckIfADeviceIsConnectedInIPRangeOf192_198_3()
         {
+            Connect("137");
             Assert.IsTrue(_connection.IsConnected());
         }
 
         [TestMethod()]
         public void ExtractCurrentSampleFromTheReceivedPacket()
         {
+            Connect("128");
             SerialData stimSample = _connection.ExtractCurrentSample(stimCommandPacket) as SerialData;
             Assert.AreEqual(expectedStimCommand, stimSample);
 
@@ -215,16 +211,16 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod()]
         public void GetADCDigitalDataFromSocket()
         {
-            ConnectToMobile("124");
-            byte[] packet = _connection.ReadSocketData();
+            Connect("137");
+            byte[] packet = _connection.ReceiveSocketData();
             CollectionAssert.AreEqual(dataPacket, packet);
         }
 
         [TestMethod()]
         public void GetADCDigitalDataFromSocketAndExtractADigitalDataFromIt()
         {
-            ConnectToMobile("124");
-            byte[] packet = _connection.ReadSocketData();
+            Connect("137");
+            byte[] packet = _connection.ReceiveSocketData();
             DigitalData digitalDataSample = _connection.ExtractCurrentSample(packet) as DigitalData;
             Assert.AreEqual(expectedADCData, digitalDataSample);
         }
@@ -232,14 +228,16 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod()]
         public void GetHeadBoxSerialDataFromSocket()
         {
-            byte[] packet = _connection.ReadSocketData();
-            CollectionAssert.AreEqual(headBoxCommandPacket, packet);
+            Connect("128");
+            byte[] packet = _connection.ReceiveSocketData();
+            CollectionAssert.AreEqual(headBoxCommandPacket, packet.Skip(0).Take(19).ToArray());
         }
 
         [TestMethod()]
         public void GetHeadBoxSerialDataFromSocketAndExtractAHeadBoxCommandFromIt()
         {
-            byte[] packet = _connection.ReadSocketData();
+            Connect("128");
+            byte[] packet = _connection.ReceiveSocketData();
             SerialData headBoxSample = _connection.ExtractCurrentSample(packet) as SerialData;
             Assert.AreEqual(expectedHeadBoxCommand, headBoxSample);
         }
@@ -247,14 +245,16 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod()]
         public void GetStimSerialDataFromSocket()
         {
-            byte[] packet = _connection.ReadSocketData();
-            CollectionAssert.AreEqual(stimCommandPacket, packet);
+            Connect("128");
+            byte[] packet = _connection.ReceiveSocketData();
+            CollectionAssert.AreEqual(stimCommandPacket, packet.Skip(0).Take(19).ToArray());
         }
 
         [TestMethod()]
         public void GetStimSerialDataFromSocketAndExtractAStimCommandFromIt()
         {
-            byte[] packet = _connection.ReadSocketData();
+            Connect("128");
+            byte[] packet = _connection.ReceiveSocketData();
             SerialData stimSample = _connection.ExtractCurrentSample(packet) as SerialData;
             Assert.AreEqual(expectedStimCommand, stimSample);
         }
@@ -263,6 +263,7 @@ namespace SocketConnection.Hardware.Tests
         public void SendACommandAsAByteArrayThroughTheSocket()
         {
             //ConnectToMobile();
+            Connect("128");
             bool exceptionIsThrown = false;
             try
             {
@@ -279,42 +280,9 @@ namespace SocketConnection.Hardware.Tests
         [TestMethod]
         public void ExtractTheRealDigitalDataFromThePacket()
         {
+            Connect("128");
             byte[] digitalData = _connection.ExtractDigitalDataFromPacket(dataPacket, 70);
             CollectionAssert.AreEqual(expectedDigitalData, digitalData);
-        }
-
-        [TestMethod]
-        public void GetPacketsInAThread()
-        {
-            ConnectToMobile("124");
-            Task readSocket = Task.Factory.StartNew(() => _connection.ReadSocketDataBuffer());
-            byte[] digitalDataBuffer = _connection.ReadDigitalDataBuffer();
-            if (digitalDataBuffer.GetLength(0) > 0 && digitalDataBuffer.GetLength(1) > 0)
-            {
-                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string filePath = Path.Combine(desktopPath, "DigitalDataBuffer.txt");
-                Write2DByteArrayToFile(digitalDataBuffer, filePath);
-            }
-        }
-
-        static void Write2DByteArrayToFile(byte[] byteArray, string filePath)
-        {
-            using (BinaryWriter writer = new BinaryWriter(File.Open(filePath, FileMode.Create)))
-            {
-                int rows = byteArray.GetLength(0);
-                int cols = byteArray.GetLength(1);
-
-                writer.Write(rows);
-                writer.Write(cols);
-
-                for (int i = 0; i < rows; i++)
-                {
-                    for (int j = 0; j < cols; j++)
-                    {
-                        writer.Write(byteArray[i]);
-                    }
-                }
-            }
         }
     }
 }
