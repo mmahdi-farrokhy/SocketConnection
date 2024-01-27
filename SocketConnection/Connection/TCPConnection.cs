@@ -172,18 +172,14 @@ namespace SocketConnection.Hardware
             byte[] channel2Data = new byte[Packet.SignalBufferLength];
             byte[] channel3Data = new byte[Packet.SignalBufferLength];
             byte[] channel4Data = new byte[Packet.SignalBufferLength];
+            int numberOfSamples = Packet.TotalPacketLength / 19;
 
-            for (int sampleIndex = 0; sampleIndex < Packet.TotalPacketLength; sampleIndex++)
+            for (int sampleCounter = 0; sampleCounter < numberOfSamples; sampleCounter++)
             {
-                channel1Data[sampleIndex] = (byte)((signal[19 * 0 + 2] * 256) + signal[19 * 0 + 3]);
-                channel2Data[sampleIndex] = (byte)((signal[19 * 0 + 4] * 256) + signal[19 * 0 + 5]);
-                channel3Data[sampleIndex] = (byte)((signal[19 * 0 + 6] * 256) + signal[19 * 0 + 7]);
-                channel4Data[sampleIndex] = (byte)((signal[19 * 0 + 8] * 256) + signal[19 * 0 + 9]);
-
-                channel1Data[sampleIndex] = (byte)((signal[19 * 1 + 21] * 256) + signal[19 * 0 + 3]);
-                channel2Data[sampleIndex] = (byte)((signal[19 * 1 + 4] * 256) + signal[19 * 0 + 5]);
-                channel3Data[sampleIndex] = (byte)((signal[19 * 1 + 6] * 256) + signal[19 * 0 + 7]);
-                channel4Data[sampleIndex] = (byte)((signal[19 * 1 + 8] * 256) + signal[19 * 0 + 9]);
+                channel1Data[sampleCounter] = (byte)((signal[19 * sampleCounter + 2] * 256) + signal[19 * sampleCounter + 3]);
+                channel2Data[sampleCounter] = (byte)((signal[19 * sampleCounter + 4] * 256) + signal[19 * sampleCounter + 5]);
+                channel3Data[sampleCounter] = (byte)((signal[19 * sampleCounter + 6] * 256) + signal[19 * sampleCounter + 7]);
+                channel4Data[sampleCounter] = (byte)((signal[19 * sampleCounter + 8] * 256) + signal[19 * sampleCounter + 9]);
             }
         }
 
